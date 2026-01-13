@@ -1,0 +1,23 @@
+{
+    "name": "Volume Master Clone",
+    "version": "1.0",
+    "manifest_version": 3,
+    "description": "Control volume of the current tab with a slider",
+    "permissions": [
+        "activeTab",
+        "tabCapture",
+        "tabs",
+        "storage",
+        "offscreen"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_title": "Volume Control"
+    },
+    "background": {
+        "service_worker": "background.js"
+    }
+}
