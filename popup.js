@@ -1,62 +1,27 @@
-// popup.js - Auto-start on first slider change
+// popup.js - Per-tab volume, only one tab active at a time
 
-let tabId = null;
-let isControlling = false;
-let currentVolume = 1.0;
-let hasStarted = false;  // Prevent multiple starts
-
-function sendToBackground(message) {
-    chrome.runtime.sendMessage(message)
-        .catch(err => {
-            console.error('Send message failed:', err);
-        });
-    // No (response) callback → no "port closed" expectation
+// Silence logs in production
+const isDev = !('update_url' in chrome.runtime.getManifest());
+if (!isDev) {
+    console.log = () => { };
+    console.error = () => { };
+    console.warn = () => { };
 }
 
-async function loadState() {
-    const data = await chrome.storage.local.get([
-        'isControlling',
-        'controlledTabId',
-        'lastVolume'
-    ]);
+let isControlling = false;
+let hasStarted = false;
+let currentVolume = 1.0;
 
-    if (data.isControlling && data.controlledTabId) {
-        try {
-            const tab = await chrome.tabs.get(data.controlledTabId);
-            if (tab) {
-                tabId = data.controlledTabId;
-                isControlling = true;
-                hasStarted = true;
-                currentVolume = data.lastVolume || 1.0;
-
-                document.getElementById('restoreBtn').style.display = 'inline-block';
-                document.getElementById('trueStopBtn').style.display = 'inline-block';
-                document.getElementById('helpText').style.display = 'block';
-
-                const percent = Math.round(currentVolume * 100);
-                document.getElementById('volume').value = percent;
-                document.getElementById('volumeValue').textContent = percent;
-
-                updateWarning(percent);
-                return;
+async function sendToBackground(message) {
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(message, (response) => {
+            if (chrome.runtime.lastError) {
+                reject(chrome.runtime.lastError);
+            } else {
+                resolve(response);
             }
-        } catch (err) {
-            // Tab gone → clean up storage silently
-            chrome.storage.local.remove(['isControlling', 'controlledTabId', 'lastVolume']);
-            console.debug('Cleared invalid/old controlled tab state');
-        }
-    }
-
-    // Default fresh state
-    isControlling = false;
-    hasStarted = false;
-    document.getElementById('restoreBtn').style.display = 'none';
-    document.getElementById('trueStopBtn').style.display = 'none';
-    document.getElementById('helpText').style.display = 'none';
-
-    document.getElementById('volume').value = 100;
-    document.getElementById('volumeValue').textContent = 100;
-    updateWarning(100);
+        });
+    });
 }
 
 function updateWarning(percent) {
@@ -66,7 +31,63 @@ function updateWarning(percent) {
     }
 }
 
-// ------------------- Slider is now the trigger -------------------
+function updateStatus(active) {
+    const status = document.getElementById('status');
+    if (active) {
+        status.textContent = 'Controlling this tab';
+        status.classList.add('active');
+    } else {
+        status.textContent = 'Not controlling this tab';
+        status.classList.remove('active');
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Load per-tab volume when popup opens
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        // Small delay for background readiness
+        await new Promise(r => setTimeout(r, 300));
+
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!activeTab?.id) return;
+
+        const tabId = activeTab.id;
+
+        // Load saved volume for this tab
+        const key = `volume_${tabId}`;
+        const savedData = await chrome.storage.local.get(key);
+        const savedVolume = savedData[key];
+
+        const initialVolume = savedVolume ?? 1.0;
+        const percent = Math.round(initialVolume * 100);
+
+        document.getElementById('volume').value = percent;
+        document.getElementById('volumeValue').textContent = percent;
+        updateWarning(percent);
+
+        // Check if this tab is currently being controlled
+        const state = await chrome.storage.local.get(['controlledTabId']);
+        if (state.controlledTabId === tabId) {
+            isControlling = true;
+            hasStarted = true;
+            updateStatus(true);
+        } else {
+            updateStatus(false);
+        }
+
+        console.log(`Popup opened on tab ${tabId} → volume: ${percent}%`);
+
+    } catch (err) {
+        console.error('Popup load error:', err);
+        document.getElementById('volume').value = 100;
+        document.getElementById('volumeValue').textContent = 100;
+        updateWarning(100);
+    }
+});
+
+// ─────────────────────────────────────────────────────────────
+// Slider – auto-start on first move, stop previous tab if needed
 document.getElementById('volume').addEventListener('input', async (event) => {
     const value = parseInt(event.target.value, 10);
     document.getElementById('volumeValue').textContent = value;
@@ -74,79 +95,118 @@ document.getElementById('volume').addEventListener('input', async (event) => {
 
     const volumeLevel = value / 100;
 
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab?.id) return;
+
+    const tabId = activeTab.id;
+
     if (!hasStarted) {
-        // First movement → auto-start capture
         try {
-            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (!activeTab?.id) {
-                alert('No active tab found. Please try on a tab with sound.');
-                return;
-            }
-
-            tabId = activeTab.id;
-            sendToBackground({ action: 'startCapture', tabId });
-
+            await sendToBackground({ action: 'startCapture', tabId });
             hasStarted = true;
             isControlling = true;
+            updateStatus(true);
 
-            // Show control buttons
-            document.getElementById('restoreBtn').style.display = 'inline-block';
-            document.getElementById('trueStopBtn').style.display = 'inline-block';
-            document.getElementById('helpText').style.display = 'block';
-
-            console.log('Auto-started control on first slider move');
+            console.log(`Started control on tab ${tabId}`);
         } catch (err) {
-            console.error('Auto-start failed:', err);
-            alert('Failed to start: ' + (err.message || 'Unknown error'));
+            showError('Failed to start: ' + (err.message || 'Unknown error'));
+            return;
         }
     }
 
-    // Always send volume update if controlling
     if (isControlling) {
-        sendToBackground({ action: 'setVolume', volume: volumeLevel });
+        await sendToBackground({ action: 'setVolume', tabId, volume: volumeLevel });
         currentVolume = volumeLevel;
-        chrome.storage.local.set({ lastVolume: volumeLevel });
+
+        // Save per-tab
+        const key = `volume_${tabId}`;
+        await chrome.storage.local.set({ [key]: volumeLevel });
     }
 });
 
 // Restore to 100%
-document.getElementById('restoreBtn').addEventListener('click', () => {
-    if (!isControlling) return;
+document.getElementById('restoreBtn').addEventListener('click', async () => {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab?.id) return;
+
+    const tabId = activeTab.id;
+
+    // Set storage FIRST so startCapture (in background) picks up 100%
+    const key = `volume_${tabId}`;
+    await chrome.storage.local.set({ [key]: 1.0 });
+
+    if (!hasStarted) {
+        try {
+            await sendToBackground({ action: 'startCapture', tabId });
+            hasStarted = true;
+            isControlling = true;
+            updateStatus(true);
+            console.log(`Started control on tab ${tabId} via Restore button`);
+        } catch (err) {
+            console.error('Start failed via Restore:', err);
+            alert('Failed to start: ' + (err.message || 'Unknown error'));
+            return;
+        }
+    }
 
     currentVolume = 1.0;
     document.getElementById('volume').value = 100;
     document.getElementById('volumeValue').textContent = 100;
     updateWarning(100);
 
-    sendToBackground({ action: 'setVolume', volume: 1.0 });
-    chrome.storage.local.set({ lastVolume: 1.0 });
+    // Also send explicit setVolume to ensure UI/offscreen sync
+    await sendToBackground({ action: 'setVolume', tabId, volume: 1.0 });
 });
 
-// True stop / Fix audio
+// ─────────────────────────────────────────────────────────────
+// True stop – stop current tab
 document.getElementById('trueStopBtn').addEventListener('click', async () => {
-    if (!isControlling || !tabId) return;
+    if (!isControlling) return;
 
-    sendToBackground({ action: 'trueStopCapture', tabId });
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab?.id) return;
+
+    const tabId = activeTab.id;
+
+    await sendToBackground({ action: 'trueStopCapture', tabId });
+
+    const key = `volume_${tabId}`;
+    await chrome.storage.local.remove(key);
 
     isControlling = false;
     hasStarted = false;
+    updateStatus(false);
 
-    document.getElementById('restoreBtn').style.display = 'none';
-    document.getElementById('trueStopBtn').style.display = 'none';
-    document.getElementById('helpText').style.display = 'none';
-
-    await chrome.storage.local.remove(['isControlling', 'controlledTabId', 'lastVolume']);
+    // Reset UI to 100%
+    document.getElementById('volume').value = 100;
+    document.getElementById('volumeValue').textContent = 100;
+    updateWarning(100);
 });
 
 // Error feedback
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === 'captureError') {
-        alert('Capture failed: ' + msg.message);
+        showError('Capture failed: ' + msg.message);
         isControlling = false;
         hasStarted = false;
-        document.getElementById('restoreBtn').style.display = 'none';
-        document.getElementById('trueStopBtn').style.display = 'none';
+        updateStatus(false);
+
+        // Reset UI to 100%
+        document.getElementById('volume').value = 100;
+        document.getElementById('volumeValue').textContent = 100;
+        updateWarning(100);
+
+        document.getElementById('helpText').style.display = 'none';
     }
 });
 
-document.addEventListener('DOMContentLoaded', loadState);
+function showError(message) {
+    const container = document.getElementById('errorContainer');
+    if (container) {
+        container.textContent = message;
+        container.style.display = 'block';
+        setTimeout(() => {
+            container.style.display = 'none';
+        }, 5000);
+    }
+}

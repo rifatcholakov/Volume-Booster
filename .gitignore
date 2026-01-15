@@ -1,0 +1,5 @@
+# Ignore all zip files in any directory
+*.zip
+
+# Ignore the /misc folder and all its contents
+/misc/
