@@ -1,4 +1,4 @@
-# Privacy Policy for Volume Booster
+# Privacy Policy for Easy Volume Booster
 
 This Privacy Policy describes how Volume Booster ("we", "us", or "our") handles your information.
 

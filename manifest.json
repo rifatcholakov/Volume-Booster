@@ -1,8 +1,8 @@
 {
-    "name": "Volume Booster",
+    "name": "Easy Volume Booster",
     "version": "1.0",
     "manifest_version": 3,
-    "description": "Control volume of the current tab with a slider",
+    "description": "Simple and effective volume control. Boost any tab's audio up to 900%.",
     "author": "Rifat Cholakov",
     "permissions": [
         "activeTab",

@@ -57,7 +57,7 @@ async function createOffscreenDocument() {
 function updateBadge(volumePercent = null) {
     if (volumePercent === null || !state.currentTabId) {
         chrome.action.setBadgeText({ text: '' });
-        chrome.action.setTitle({ title: 'Volume Booster - Inactive' });
+        chrome.action.setTitle({ title: 'Easy Volume Booster - Inactive' });
         return;
     }
 
