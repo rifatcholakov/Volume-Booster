@@ -1,241 +1,243 @@
-(async () => {
-    // Silence logs in production
-    const isDev = !('update_url' in chrome.runtime.getManifest());
-    if (!isDev) {
-        console.log = () => { };
-        console.error = () => { };
-        console.warn = () => { };
-    }
+import { CONSTANTS, getVolumeKey, setupLogging } from './shared.js';
 
-    let currentTabId = null;
-    let currentVolume = 1.0;
-    let offscreenCreated = false;
-    let creatingOffscreen = null;
+// Global State
+let state = {
+    currentTabId: null,
+    currentVolume: 1.0,
+    offscreenCreated: false,
+    creatingOffscreen: null
+};
 
-    async function createOffscreenDocument() {
-        if (offscreenCreated) return;
-        if (creatingOffscreen) {
-            await creatingOffscreen;
+// Silence logs in production
+setupLogging();
+
+// ─────────────────────────────────────────────────────────────
+// Offscreen Document Management
+
+async function createOffscreenDocument() {
+    if (state.offscreenCreated) return;
+    if (state.creatingOffscreen) return state.creatingOffscreen;
+
+    try {
+        const hasDocument = await chrome.offscreen.hasDocument();
+        if (hasDocument) {
+            state.offscreenCreated = true;
             return;
         }
+    } catch (e) {
+        // Ignore error
+    }
 
+    state.creatingOffscreen = (async () => {
         try {
-            const hasDocument = await chrome.offscreen.hasDocument();
-            if (hasDocument) {
-                offscreenCreated = true;
-                return;
+            await chrome.offscreen.createDocument({
+                url: 'offscreen.html',
+                reasons: ['USER_MEDIA', 'DISPLAY_MEDIA'],
+                justification: 'Volume control requires an offscreen document'
+            });
+            state.offscreenCreated = true;
+            console.log('Offscreen document created');
+        } catch (err) {
+            console.error('Offscreen creation failed:', err);
+            if (!err.message?.includes('single offscreen document')) {
+                throw err;
             }
-        } catch (e) {
-            // Ignore error from hasDocument if context is invalid
+            state.offscreenCreated = true;
+        } finally {
+            state.creatingOffscreen = null;
+        }
+    })();
+
+    return state.creatingOffscreen;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Badge & UI Updates
+
+function updateBadge(volumePercent = null) {
+    if (volumePercent === null || !state.currentTabId) {
+        chrome.action.setBadgeText({ text: '' });
+        chrome.action.setTitle({ title: 'Volume Booster - Inactive' });
+        return;
+    }
+
+    const percent = Math.round(volumePercent);
+    const text = percent > 999 ? 'MAX' : percent.toString();
+    chrome.action.setBadgeText({ text });
+
+    const color = percent <= 100 ? '#34c759' : (percent <= CONSTANTS.WARNING_THRESHOLD ? '#ffcc00' : '#ff3b30');
+    chrome.action.setBadgeBackgroundColor({ color });
+    chrome.action.setTitle({ title: `Volume: ${text}%` });
+}
+
+async function updateBadgeForActiveTab() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id && state.currentTabId === tab.id) {
+        updateBadge(state.currentVolume * 100);
+    } else {
+        updateBadge(null);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Capture Logic
+
+async function startCapture(tabId) {
+    try {
+        if (state.currentTabId === tabId) return;
+
+        if (state.currentTabId) {
+            await trueStopCapture(state.currentTabId);
         }
 
-        creatingOffscreen = (async () => {
-            try {
-                await chrome.offscreen.createDocument({
-                    url: 'offscreen.html',
-                    reasons: ['USER_MEDIA', 'DISPLAY_MEDIA'],
-                    justification: 'Volume control requires an offscreen document'
-                });
-                offscreenCreated = true;
-                console.log('Offscreen document created');
-            } catch (err) {
-                console.error('Offscreen creation failed:', err);
-                if (err.message?.includes('single offscreen document')) {
-                    offscreenCreated = true;
+        const key = getVolumeKey(tabId);
+        const saved = await chrome.storage.local.get(key);
+        const initialVolume = saved[key] ?? 1.0;
+
+        await createOffscreenDocument();
+
+        const streamId = await new Promise((resolve, reject) => {
+            chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
+                if (chrome.runtime.lastError) {
+                    reject(chrome.runtime.lastError);
                 } else {
-                    throw err;
+                    resolve(id);
                 }
-            } finally {
-                creatingOffscreen = null;
-            }
-        })();
+            });
+        });
 
-        await creatingOffscreen;
+        state.currentTabId = tabId;
+        state.currentVolume = initialVolume;
+
+        chrome.runtime.sendMessage({
+            action: 'startAudio',
+            streamId,
+            volume: initialVolume
+        });
+
+        await chrome.storage.local.set({
+            [CONSTANTS.STORAGE_KEYS.IS_CONTROLLING]: true,
+            [CONSTANTS.STORAGE_KEYS.CONTROLLED_TAB_ID]: tabId,
+            [CONSTANTS.STORAGE_KEYS.LAST_VOLUME]: initialVolume,
+            [key]: initialVolume
+        });
+
+        updateBadge(initialVolume * 100);
+    } catch (err) {
+        console.error('Capture failed:', err);
+        chrome.runtime.sendMessage({ action: 'captureError', message: err.message || 'Unknown error' });
+        updateBadge(null);
     }
+}
 
-    function updateBadge(volumePercent = null) {
-        if (volumePercent === null || !currentTabId) {
-            chrome.action.setBadgeText({ text: '' });
-            chrome.action.setBadgeBackgroundColor({ color: [0, 0, 0, 0] });
-            chrome.action.setTitle({ title: 'Volume Booster - Not active' });
-            return;
+async function trueStopCapture(tabId) {
+    try {
+        state.currentTabId = null;
+        chrome.runtime.sendMessage({ action: 'stopAudio' });
+
+        if (tabId) {
+            setTimeout(async () => {
+                try {
+                    const tab = await chrome.tabs.get(tabId);
+                    if (tab) await chrome.tabs.update(tabId, { muted: false });
+                } catch (e) { /* Tab might be closed */ }
+            }, 300);
         }
 
-        const percent = Math.round(volumePercent);
-        const text = percent > 999 ? 'MAX' : percent.toString();
-        chrome.action.setBadgeText({ text });
-
-        let color = percent <= 100 ? '#4CAF50' :
-            percent <= 400 ? '#FFC107' : '#F44336';
-
-        chrome.action.setBadgeBackgroundColor({ color });
-        chrome.action.setTitle({ title: `Volume: ${text}%` });
+        updateBadge(null);
+    } catch (err) {
+        console.error('Stop failed:', err);
     }
+}
 
-    async function startCapture(tabId) {
-        try {
-            if (currentTabId === tabId) {
-                console.log('Tab already being captured:', tabId);
-                return;
-            }
+// ─────────────────────────────────────────────────────────────
+// Event Listeners (Top-Level)
 
-            if (currentTabId && currentTabId !== tabId) {
-                await trueStopCapture(currentTabId);
-            }
-
-            const key = `volume_${tabId}`;
-            const saved = await chrome.storage.local.get(key);
-            const initialVolume = saved[key] ?? 1.0;
-
-            await createOffscreenDocument();
-
-            const streamId = await new Promise((resolve, reject) => {
-                chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
-                    if (chrome.runtime.lastError) {
-                        reject(chrome.runtime.lastError.message);
-                    } else {
-                        resolve(id);
-                    }
-                });
-            });
-
-            currentTabId = tabId;
-            currentVolume = initialVolume;
-
-            chrome.runtime.sendMessage({
-                action: 'startAudio',
-                streamId,
-                volume: initialVolume
-            });
-
-            await chrome.storage.local.set({
-                isControlling: true,
-                controlledTabId: tabId,
-                lastVolume: initialVolume,
-                [key]: initialVolume
-            });
-
-            updateBadge(initialVolume * 100);
-        } catch (err) {
-            console.error('Start capture failed:', err);
-            chrome.runtime.sendMessage({ action: 'captureError', message: err.message || 'Unknown error' });
-            updateBadge(null);
-        }
-    }
-
-    async function trueStopCapture(tabId) {
-        try {
-            currentTabId = null;
-            chrome.runtime.sendMessage({ action: 'stopAudio' });
-
-            if (tabId) {
-                setTimeout(async () => {
-                    try {
-                        const tab = await chrome.tabs.get(tabId);
-                        if (tab) await chrome.tabs.update(tabId, { muted: false });
-                    } catch (e) {
-                        // ignore
-                    }
-                }, 500);
-            }
-
-            updateBadge(null);
-        } catch (err) {
-            console.error('Stop capture failed:', err);
-            updateBadge(null);
-        }
-    }
-
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (message.action === 'ping') {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    switch (message.action) {
+        case 'ping':
             sendResponse({ ready: true });
-            return true;
-        }
-
-        if (message.action === 'startCapture') {
+            break;
+        case 'startCapture':
             startCapture(message.tabId)
                 .then(() => sendResponse({ success: true }))
-                .catch(e => sendResponse({ error: e }));
+                .catch(e => sendResponse({ error: e.message }));
             return true;
-        }
-
-        if (message.action === 'trueStopCapture') {
+        case 'trueStopCapture':
             trueStopCapture(message.tabId)
                 .then(() => sendResponse({ success: true }))
-                .catch(e => sendResponse({ error: e }));
+                .catch(e => sendResponse({ error: e.message }));
             return true;
-        }
+        case 'setVolume':
+            state.currentVolume = message.volume;
+            chrome.runtime.sendMessage({ action: 'setVolume', volume: state.currentVolume });
+            updateBadge(state.currentVolume * 100);
 
-        if (message.action === 'setVolume') {
-            currentVolume = message.volume;
-            chrome.runtime.sendMessage({
-                action: 'setVolume',
-                volume: currentVolume
-            });
-            updateBadge(currentVolume * 100);
-
-            if (currentTabId) {
+            if (state.currentTabId) {
                 chrome.storage.local.set({
-                    [`volume_${currentTabId}`]: currentVolume,
-                    lastVolume: currentVolume
+                    [getVolumeKey(state.currentTabId)]: state.currentVolume,
+                    [CONSTANTS.STORAGE_KEYS.LAST_VOLUME]: state.currentVolume
                 });
             }
             sendResponse({ success: true });
-            return true;
-        }
-    });
+            break;
+    }
+});
 
-    chrome.tabs.onRemoved.addListener((tabId) => {
-        chrome.storage.local.remove(`volume_${tabId}`); // Prevent storage bloat
-        if (currentTabId === tabId) {
-            trueStopCapture(tabId);
-            chrome.storage.local.remove(['isControlling', 'controlledTabId', 'lastVolume']);
-        }
-    });
+chrome.tabs.onRemoved.addListener((tabId) => {
+    chrome.storage.local.remove(getVolumeKey(tabId));
+    if (state.currentTabId === tabId) {
+        trueStopCapture(tabId);
+        chrome.storage.local.remove([
+            CONSTANTS.STORAGE_KEYS.IS_CONTROLLING,
+            CONSTANTS.STORAGE_KEYS.CONTROLLED_TAB_ID,
+            CONSTANTS.STORAGE_KEYS.LAST_VOLUME
+        ]);
+    }
+});
 
-    chrome.tabs.onActivated.addListener(() => {
-        updateBadgeForActiveTab();
-    });
+chrome.tabs.onActivated.addListener(updateBadgeForActiveTab);
+chrome.windows.onFocusChanged.addListener(updateBadgeForActiveTab);
 
-    async function restoreBadgeOnStartup() {
-        const data = await chrome.storage.local.get(['isControlling', 'controlledTabId', 'lastVolume']);
-        if (data.isControlling && data.controlledTabId && data.lastVolume != null) {
-            try {
-                const tab = await chrome.tabs.get(data.controlledTabId);
-                if (tab) {
-                    currentTabId = data.controlledTabId;
-                    currentVolume = data.lastVolume;
-                    updateBadge(currentVolume * 100);
+// ─────────────────────────────────────────────────────────────
+// Initialization
 
-                    await createOffscreenDocument();
-                    // Small delay to ensure offscreen is ready
-                    setTimeout(() => {
-                        chrome.runtime.sendMessage({
-                            action: 'setVolume',
-                            volume: data.lastVolume
-                        }).catch(() => { });
-                    }, 500);
-                }
-            } catch (e) {
-                console.log('No tab to restore volume for');
+async function init() {
+    const data = await chrome.storage.local.get([
+        CONSTANTS.STORAGE_KEYS.IS_CONTROLLING,
+        CONSTANTS.STORAGE_KEYS.CONTROLLED_TAB_ID,
+        CONSTANTS.STORAGE_KEYS.LAST_VOLUME
+    ]);
+
+    if (data[CONSTANTS.STORAGE_KEYS.IS_CONTROLLING] && data[CONSTANTS.STORAGE_KEYS.CONTROLLED_TAB_ID]) {
+        try {
+            const tabId = data[CONSTANTS.STORAGE_KEYS.CONTROLLED_TAB_ID];
+            const tab = await chrome.tabs.get(tabId);
+            if (tab) {
+                state.currentTabId = tabId;
+                state.currentVolume = data[CONSTANTS.STORAGE_KEYS.LAST_VOLUME] ?? 1.0;
+                updateBadge(state.currentVolume * 100);
+
+                await createOffscreenDocument();
+                // Re-sync offscreen if it was restarted
+                setTimeout(() => {
+                    chrome.runtime.sendMessage({
+                        action: 'setVolume',
+                        volume: state.currentVolume
+                    }).catch(() => { });
+                }, 1000);
             }
+        } catch (e) {
+            console.log('No active session to restore');
+            chrome.storage.local.remove([
+                CONSTANTS.STORAGE_KEYS.IS_CONTROLLING,
+                CONSTANTS.STORAGE_KEYS.CONTROLLED_TAB_ID,
+                CONSTANTS.STORAGE_KEYS.LAST_VOLUME
+            ]);
         }
     }
+    console.log('Background service worker initialized');
+}
 
-    function updateBadgeForActiveTab() {
-        chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-            if (tab?.id && currentTabId === tab.id) {
-                updateBadge(currentVolume * 100);
-            } else {
-                updateBadge(null);
-            }
-        });
-    }
-
-    try {
-        await restoreBadgeOnStartup();
-        console.log('Background initialized');
-    } catch (err) {
-        console.error('Initialization error:', err);
-    }
-})();
+// Start Init
+init().catch(console.error);

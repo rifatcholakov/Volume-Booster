@@ -1,39 +1,47 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Volume Booster</title>
     <link rel="stylesheet" href="popup.css">
 </head>
 
 <body>
-    <h3 class="title">Volume Booster</h3>
+    <div class="container">
+        <h1 class="title">Volume Booster</h1>
+        <div id="status" class="status">Not controlling</div>
 
-    <div id="errorContainer" class="errorContainer"></div>
-    <div id="status" class="status">Not controlling this tab</div>
+        <div id="errorContainer" class="errorContainer"></div>
 
-    <div class="info-note">
-        Move the slider to start boosting the current tab's audio
+        <div class="volume-section">
+            <div class="volume-label">
+                <span>Volume</span>
+                <span><span id="volumeValue">100</span>%</span>
+            </div>
+            <div class="volume-container">
+                <input type="range" id="volume" class="volume" min="0" max="900" value="100" step="1"
+                    aria-label="Volume Slider">
+            </div>
+            <div id="warning" class="warning">
+                High levels may cause audio distortion!
+            </div>
+        </div>
+
+        <div class="button-container">
+            <button id="restoreBtn" class="button restoreBtn" title="Reset to 100%">Reset to 100%</button>
+            <button id="trueStopBtn" class="button trueStopBtn" title="Stop boosting this tab">Turn Off Booster</button>
+        </div>
+
+        <div class="help-section">
+            <div id="helpText" class="helpText">
+                If audio is silent, try refreshing the page or duplicating the tab.
+            </div>
+        </div>
     </div>
 
-    <label for="volume" class="volume-label">Volume: <span id="volumeValue" class="volumeValue">100</span>%</label>
-    <input type="range" id="volume" class="volume" min="0" max="900" value="100" step="1">
-
-    <div id="warning" class="warning">
-        Warning: Levels above 400% may cause distortion or damage speakers/headphones!
-    </div>
-
-    <div class="button-container">
-        <button id="restoreBtn" class="button restoreBtn">Restore to 100%</button>
-        <button id="trueStopBtn" class="button trueStopBtn">Turn Off Booster</button>
-    </div>
-
-    <div id="helpText" class="helpText">
-        If you have any problem with the audio(for example: silent audio or other) just refresh the page or right click
-        on the tab and select "Duplicate".
-    </div>
-
-    <script src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
 </body>
 
 </html>
