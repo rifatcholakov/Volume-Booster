@@ -3,201 +3,32 @@
 
 <head>
     <title>Volume Booster</title>
-    <style>
-        body {
-            width: 260px;
-            padding: 20px;
-            margin: 0;
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 16px;
-            /* base font size increased */
-            line-height: 1.5;
-            text-align: center;
-            background: #f8f9fa;
-            color: #1a1a1a;
-            user-select: none;
-        }
-
-        h3 {
-            margin: 0 0 16px;
-            font-size: 22px;
-            /* bigger title */
-            font-weight: 600;
-            color: #111;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 12px;
-            font-size: 18px;
-            /* larger label */
-            font-weight: bold;
-        }
-
-        #volumeValue {
-            font-size: 28px;
-            /* very large percentage display */
-            font-weight: bold;
-            color: #0066cc;
-            min-width: 80px;
-            display: inline-block;
-        }
-
-        #volume {
-            width: 100%;
-            height: 12px;
-            /* thicker track */
-            margin: 16px 0 20px;
-            -webkit-appearance: none;
-            appearance: none;
-            background: #ddd;
-            border-radius: 6px;
-            outline: none;
-        }
-
-        #volume::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 28px;
-            /* much bigger thumb */
-            height: 28px;
-            background: #0066cc;
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-        }
-
-        #volume::-moz-range-thumb {
-            width: 28px;
-            height: 28px;
-            background: #0066cc;
-            border-radius: 50%;
-            cursor: pointer;
-            border: none;
-        }
-
-        button {
-            margin: 10px 6px;
-            padding: 12px 20px;
-            font-size: 17px;
-            /* bigger buttons */
-            font-weight: bold;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        #restoreBtn {
-            background: #28a745;
-            color: white;
-        }
-
-        #restoreBtn:hover {
-            background: #218838;
-        }
-
-        #trueStopBtn {
-            background: #dc3545;
-            color: white;
-        }
-
-        #trueStopBtn:hover {
-            background: #c82333;
-        }
-
-        .button-container {
-            display: flex;
-            justify-content: space-between;
-            gap: 10px;
-            margin-top: 20px;
-        }
-
-        .button-container button {
-            flex: 1;
-            margin: 0;
-            padding: 12px 8px;
-            font-size: 15px;
-            white-space: nowrap;
-        }
-
-        #warning {
-            color: #d9534f;
-            font-size: 15px;
-            font-weight: 500;
-            margin: 12px 0 16px;
-            display: none;
-            line-height: 1.4;
-        }
-
-        #helpText {
-            font-size: 14px;
-            color: #555;
-            line-height: 1.5;
-            margin-top: 16px;
-        }
-
-        .info-note {
-            font-size: 15px;
-            color: #666;
-            margin-bottom: 12px;
-            line-height: 1.4;
-        }
-
-        #status {
-            padding: 6px 12px;
-            margin-bottom: 16px;
-            border-radius: 20px;
-            font-size: 14px;
-            font-weight: bold;
-            display: inline-block;
-            background: #e9ecef;
-            color: #6c757d;
-            transition: all 0.3s;
-        }
-
-        #status.active {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-
-        #errorContainer {
-            display: none;
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-            padding: 10px;
-            margin-bottom: 16px;
-            border-radius: 6px;
-            font-size: 14px;
-            text-align: left;
-        }
-    </style>
+    <link rel="stylesheet" href="popup.css">
 </head>
 
 <body>
-    <h3>Volume Booster</h3>
+    <h3 class="title">Volume Booster</h3>
 
-    <div id="errorContainer"></div>
-    <div id="status">Not controlling this tab</div>
+    <div id="errorContainer" class="errorContainer"></div>
+    <div id="status" class="status">Not controlling this tab</div>
 
     <div class="info-note">
         Move the slider to start boosting the current tab's audio
     </div>
 
-    <label for="volume">Volume: <span id="volumeValue">100</span>%</label>
-    <input type="range" id="volume" min="0" max="900" value="100" step="1">
+    <label for="volume" class="volume-label">Volume: <span id="volumeValue" class="volumeValue">100</span>%</label>
+    <input type="range" id="volume" class="volume" min="0" max="900" value="100" step="1">
 
-    <div id="warning">
+    <div id="warning" class="warning">
         Warning: Levels above 400% may cause distortion or damage speakers/headphones!
     </div>
 
     <div class="button-container">
-        <button id="restoreBtn">Restore to 100%</button>
-        <button id="trueStopBtn">Turn Off Booster</button>
+        <button id="restoreBtn" class="button restoreBtn">Restore to 100%</button>
+        <button id="trueStopBtn" class="button trueStopBtn">Turn Off Booster</button>
     </div>
 
-    <div id="helpText">
+    <div id="helpText" class="helpText">
         If you have any problem with the audio(for example: silent audio or other) just refresh the page or right click
         on the tab and select "Duplicate".
     </div>
