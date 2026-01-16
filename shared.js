@@ -1,7 +1,7 @@
 // shared.js - Shared constants and utilities (ES Module)
 
 export const CONSTANTS = {
-    MAX_VOLUME: 900,
+    MAX_VOLUME: 1200,
     WARNING_THRESHOLD: 400,
     DEFAULT_VOLUME: 100,
     RAMP_TIME: 0.1, // Seconds for volume smoothing
