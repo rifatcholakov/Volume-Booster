@@ -7,7 +7,6 @@
     "permissions": [
         "activeTab",
         "tabCapture",
-        "tabs",
         "storage",
         "offscreen"
     ],
