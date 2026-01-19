@@ -10,7 +10,7 @@ Volume Booster does **not** collect, store, or transmit any personal data, brows
 The extension uses the `tabCapture` API to access the audio stream of the active tab for the sole purpose of adjusting its volume. 
 - The audio data is processed locally on your machine.
 - Audio data is **never** recorded, stored, or sent to any server.
-- The extension requires the `<all_urls>` permission to function on any website where you choose to use it, but it only accesses audio on the specific tab you interact with.
+- The extension requires the `activeTab` permission to gain access to the audio when you interact with the extension icon. It only captures audio on the specific tab you choose to control.
 
 ## Data Security
 All processing happens within your browser's local environment. We do not have access to any of your data.

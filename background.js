@@ -32,7 +32,7 @@ async function createOffscreenDocument() {
         try {
             await chrome.offscreen.createDocument({
                 url: 'offscreen.html',
-                reasons: ['USER_MEDIA', 'DISPLAY_MEDIA'],
+                reasons: ['USER_MEDIA'],
                 justification: 'Volume control requires an offscreen document'
             });
             state.offscreenCreated = true;
@@ -62,7 +62,7 @@ function updateBadge(volumePercent = null) {
     }
 
     const percent = Math.round(volumePercent);
-    const text = percent > 999 ? 'MAX' : percent.toString();
+    const text = percent === CONSTANTS.MAX_VOLUME ? 'MAX' : percent.toString();
     chrome.action.setBadgeText({ text });
 
     const color = percent <= 100 ? '#34c759' : (percent <= CONSTANTS.WARNING_THRESHOLD ? '#ffcc00' : '#ff3b30');
